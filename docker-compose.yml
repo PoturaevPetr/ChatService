@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # PostgreSQL база данных
+  postgres:
+    image: postgres:15-alpine
+    container_name: chatservice_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ChatDatabase
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - clinic-chat
+  
+  
+  # ChatService API
+  api:
+    build: .
+    container_name: chatservice_api
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-8080}:8320"
+    environment:
+      # Database
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+
+      # Server
+      PORT: ${PORT}
+      DEBUG: ${DEBUG}
+
+      # JWT
+      JWT_SECRET_KEY: your-production-secret-key-change-this
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+
+      # CORS
+      CORS_ORIGINS: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: python start.py
+    restart: unless-stopped
+    networks:
+      - clinic-chat
+
+volumes:
+  postgres_data:
+
+networks:
+  clinic-chat:
+    driver: bridge
+    name: clinic-chat
+    external: true
