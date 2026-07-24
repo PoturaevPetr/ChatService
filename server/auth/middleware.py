@@ -168,6 +168,23 @@ async def get_current_user(
     return await AuthMiddleware.get_current_user(request, credentials)
 
 
+async def get_current_jwt_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
+) -> Dict[str, Any]:
+    """
+    Только JWT-пользователь с user_id (не API key).
+    Нужен для эндпоинтов вроде регистрации push, привязанных к аккаунту человека.
+    """
+    data = await AuthMiddleware.get_current_user(request, credentials)
+    if data.get("token_type") != "jwt" or not data.get("user_id"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires a logged-in user session",
+        )
+    return data
+
+
 # Middleware для добавления user_info в request.state
 class AuthMiddlewareWrapper(BaseHTTPMiddleware):
     """Middleware wrapper для добавления данных аутентификации в request"""

@@ -8,13 +8,14 @@ class RoomUsers(BaseModel):
     __tablename__ = "room_user"
     
     
-    # Внешние ключи
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    # Внешние ключи (индексы: список участников по room_id, список комнат по user_id)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    room_id = Column(UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Дополнительные поля для связи
     joined_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     role = Column(String(50), default="member")  # 'admin', 'member', 'moderator'
+    notifications_enabled = Column(Boolean, default=True, nullable=False, server_default="true")
     
     # Relationships - ИСПРАВЛЕНО
     room = relationship("Rooms", back_populates="participants")

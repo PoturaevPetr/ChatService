@@ -45,3 +45,22 @@ migrate: ## Создать миграции БД
 
 upgrade: ## Применить миграции
 	docker-compose exec api alembic upgrade head
+
+migrate-messages-status: ## Добавить колонку status в messages (если 500 на GET /api/v1/messages/)
+	@echo "Applying messages.status migration..."
+	docker-compose exec -T postgres psql -U postgres -d ChatDatabase < migrations/add_messages_status.sql
+	@echo "Done. Restart API if needed: docker-compose restart api"
+
+migrate-messages-variant-a: ## Вариант A: nullable recipient_id + таблица message_reads (перед деплоем нового API)
+	@echo "Applying migrate_messages_variant_a_message_reads.sql..."
+	docker-compose exec -T postgres psql -U postgres -d ChatDatabase -v ON_ERROR_STOP=1 < migrations/migrate_messages_variant_a_message_reads.sql
+	@echo "Done. Deploy new API/worker after this."
+
+migrate-rooms-avatar: ## Колонка rooms.avatar (аватар группы)
+	docker-compose exec -T postgres psql -U postgres -d ChatDatabase -v ON_ERROR_STOP=1 < migrations/add_rooms_avatar.sql
+	@echo "Done."
+
+migrate-performance-indexes: ## Индексы room_user + messages (ленты и membership)
+	@echo "Applying migrations/add_performance_indexes.sql..."
+	docker-compose exec -T postgres psql -U postgres -d ChatDatabase -v ON_ERROR_STOP=1 < migrations/add_performance_indexes.sql
+	@echo "Done."

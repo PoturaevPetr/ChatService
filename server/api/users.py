@@ -6,7 +6,6 @@ import uuid
 
 from server.database import get_db
 from server.database.Messages import Messages
-from server.database.UserKeys import UserKeys
 from server.database.Users import Users
 from server.auth.middleware import get_current_user
 from server.services.users_services import users_service

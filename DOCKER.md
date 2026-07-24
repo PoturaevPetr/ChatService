@@ -18,9 +18,19 @@ docker-compose down
 **Важно:** При первом запуске PostgreSQL автоматически создаст базу `ChatDatabase` и применит скрипт `init-db.sql`. API контейнер дождется готовности БД перед запуском.
 
 Сервисы будут доступны на:
-- **API**: http://localhost:8080
+- **API**: http://localhost:8080 (в контейнере API слушает порт 8320; для воркера задайте `PORT=8320` в .env)
+- **Worker**: http://localhost:8321/health
+- **Redis**: localhost:6380 (по умолчанию)
+- **RabbitMQ**: amqp localhost:5672, management http://localhost:15672
 - **PostgreSQL**: localhost:5434
 - **API Docs**: http://localhost:8080/docs
+
+### Доставка сообщений
+
+API → RabbitMQ → Worker → Redis `ws:deliver:{node_id}` → WebSocket на API-ноде.  
+Воркер **не** вызывает HTTP `/api/internal/deliver` (маршрут удалён).
+
+Подробнее: [docs/REALTIME_DELIVERY.md](docs/REALTIME_DELIVERY.md).
 
 ### 2. Только сборка образа
 
@@ -55,14 +65,22 @@ docker run -p 8080:8080 \
 ### CORS
 - `CORS_ORIGINS` - разрешенные origins для CORS (по умолчанию: *)
 
+### Redis и воркер
+- `REDIS_URL` - URL Redis для очереди доставки (по умолчанию: redis://localhost:6379/0)
+- `WORKER_PORT` - порт воркера доставки (по умолчанию: 8321)
+- `API_BASE_URL` - URL API для вызовов из воркера (в Docker: http://api:8320)
+- `INTERNAL_DELIVERY_SECRET` - секрет для внутреннего endpoint доставки (заголовок X-Internal-Secret); если задан, воркер обязан его передавать
+
 ## 📝 Команды Docker Compose
 
 ```bash
 # Запуск в фоне
 docker-compose up -d
 
-# Просмотр логов
+# Просмотр логов (все сервисы или только api/worker)
 docker-compose logs -f
+docker-compose logs -f api
+docker-compose logs -f worker
 
 # Перезапуск
 docker-compose restart

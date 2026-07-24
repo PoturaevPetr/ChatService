@@ -12,6 +12,7 @@ class Rooms(BaseModel):
     # Основная информация
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    avatar = Column(Text, nullable=True)  # data URL / URL, как у users.avatar
 
     # Создатель - ИСПРАВЛЕНО (добавлен ForeignKey)
     created_by = Column(

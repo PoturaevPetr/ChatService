@@ -11,7 +11,7 @@ services:
       POSTGRES_DB: ChatDatabase
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
@@ -22,8 +22,39 @@ services:
       retries: 5
     networks:
       - clinic-chat
-  
-  
+      - clinic-network
+
+  # Redis — presence / pub-sub routing (на хосте — REDIS_PORT или 6380)
+  redis:
+    image: redis:7-alpine
+    container_name: chatservice_redis
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    networks:
+      clinic-chat:
+        aliases:
+          - chatservice-redis
+
+  # RabbitMQ — durable очередь доставки (DELIVERY_V2)
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: chatservice_rabbitmq
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      clinic-chat:
+        aliases:
+          - rabbitmq
+
   # ChatService API
   api:
     build: .
@@ -51,12 +82,58 @@ services:
 
       # CORS
       CORS_ORIGINS: "*"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      INTERNAL_DELIVERY_SECRET: ${INTERNAL_DELIVERY_SECRET:-}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      API_NODE_ID: ${API_NODE_ID:-api-1}
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     volumes:
       - .:/app
+      - ./uploads/mobile-releases:/app/uploads/mobile-releases
     command: python start.py
+    restart: unless-stopped
+    networks:
+      - clinic-chat
+      # Та же сеть, что у novu-api (см. compose Novu: backend-python_clinic-network), иначе NOVU_API_URL=http://novu-api:3000 не резолвится.
+      - novu-backend
+
+  # Воркер доставки: RabbitMQ → Redis ws:deliver:{node}
+  worker:
+    build: .
+    container_name: chatservice_worker
+    env_file:
+      - .env
+    ports:
+      - "${WORKER_PORT:-8321}:8321"
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      API_BASE_URL: http://api:8320
+      INTERNAL_DELIVERY_SECRET: ${INTERNAL_DELIVERY_SECRET:-}
+      WORKER_PORT: 8321
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - .:/app
+    command: python worker_main.py
     restart: unless-stopped
     networks:
       - clinic-chat
@@ -68,4 +145,11 @@ networks:
   clinic-chat:
     driver: bridge
     name: clinic-chat
+    external: true
+  clinic-network:
+    name: clinic-network
+    external: true
+  # Должна совпадать с именем сети в compose Novu (clinic-network → name: backend-python_clinic-network)
+  novu-backend:
+    name: backend-python_clinic-network
     external: true

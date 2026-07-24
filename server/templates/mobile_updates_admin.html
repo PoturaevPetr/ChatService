@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mobile updates admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto w-full max-w-6xl px-4 py-8 md:px-8">
+    <header class="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-[0.25em] text-indigo-300">ChatService</p>
+        <h1 class="mt-2 text-2xl font-semibold md:text-3xl">Загрузка мобильных обновлений</h1>
+        <p class="mt-2 text-sm text-slate-400">Управление релизами приложений: загрузка сборки, описание версии и контроль latest.</p>
+      </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-3 text-xs text-slate-400">
+        Endpoint:
+        <span class="font-mono text-slate-200">/api/v1/mobile/admin/releases</span>
+      </div>
+    </header>
+
+    {% if msg %}
+      <div id="form-success" class="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+        {{ msg }}
+      </div>
+    {% else %}
+      <div id="form-success" class="mb-6 hidden rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"></div>
+    {% endif %}
+
+    <div id="form-error" class="mb-4 hidden rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"></div>
+
+    <section class="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-2xl shadow-slate-950/40 md:p-6">
+      <div class="mb-5 flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Новый релиз</h2>
+        <span class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-3 py-1 text-xs text-indigo-200">Upload form</span>
+      </div>
+
+      <form id="release-upload-form" method="post" action="/api/v1/mobile/admin/releases/upload" enctype="multipart/form-data" novalidate class="space-y-5">
+        <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-200">Платформа</span>
+            <select name="platform" required class="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20">
+              <option value="android">android</option>
+            </select>
+          </label>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-200">Версия (например 0.5.0)</span>
+            <input name="version" required placeholder="0.5.0" class="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20" />
+          </label>
+        </div>
+
+        <label class="block">
+          <span class="mb-2 block text-sm font-medium text-slate-200">Описание версии</span>
+          <textarea name="description" rows="4" placeholder="Что изменилось..." required class="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20"></textarea>
+        </label>
+
+        <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-200">Минимально поддерживаемая версия</span>
+            <input name="min_supported_version" placeholder="например 0.4.0" required class="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20" />
+          </label>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-200">Тип обновления</span>
+            <select name="force_update" required class="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20">
+              <option value="soft">Рекомендованное (soft)</option>
+              <option value="force">Обязательное (force)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-200">Повтор soft-уведомления через (часов)</span>
+            <input name="remind_after_hours" type="number" min="1" value="{{ default_remind_hours }}" required class="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20" />
+          </label>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-200">Admin secret (если включен)</span>
+            <input type="password" name="admin_secret" placeholder="MOBILE_UPDATE_ADMIN_SECRET" required class="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20" />
+          </label>
+        </div>
+
+        <label class="block">
+          <span class="mb-2 block text-sm font-medium text-slate-200">Файл обновления</span>
+          <input type="file" name="release_file" required accept=".apk,.aab,.ipa,.dmg,.pkg,.exe,.msi,.msix,.zip" class="block w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-indigo-500/20 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-200 hover:file:bg-indigo-500/30" />
+        </label>
+
+        <div class="flex items-center justify-end">
+          <button id="release-upload-submit" type="submit" class="inline-flex items-center rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 disabled:cursor-not-allowed disabled:opacity-60">
+            Загрузить релиз
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="mt-6 rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-2xl shadow-slate-950/40 md:p-6">
+      <div class="mb-5 flex items-center justify-between">
+        <h2 class="text-lg font-semibold">Последние релизы</h2>
+        <span id="releases-count" class="rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-xs text-slate-300">{{ rows|length }} items</span>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border border-slate-800">
+        <table class="min-w-full divide-y divide-slate-800 text-sm">
+          <thead class="bg-slate-900/90">
+            <tr class="text-left text-xs uppercase tracking-wider text-slate-400">
+              <th class="px-4 py-3 font-medium">Created</th>
+              <th class="px-4 py-3 font-medium">Platform</th>
+              <th class="px-4 py-3 font-medium">Version</th>
+              <th class="px-4 py-3 font-medium">Force</th>
+              <th class="px-4 py-3 font-medium">Min supported</th>
+              <th class="px-4 py-3 font-medium">Size</th>
+              <th class="px-4 py-3 font-medium">File</th>
+            </tr>
+          </thead>
+          <tbody id="releases-table-body" class="divide-y divide-slate-800 bg-slate-950/30">
+            {% if rows|length == 0 %}
+              <tr>
+                <td colspan="7" class="px-4 py-6 text-center text-slate-400">No releases yet</td>
+              </tr>
+            {% else %}
+              {% for r in rows %}
+          <tr class="text-slate-200">
+            <td class="px-4 py-3">{{ r.created_at }}</td>
+            <td class="px-4 py-3">{{ r.platform }}</td>
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-2">
+                <span>{{ r.version }}</span>
+                {% if r.is_latest %}
+                  <span class="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300">latest</span>
+                {% endif %}
+              </div>
+            </td>
+            <td class="px-4 py-3">
+              {% if r.force_update %}
+                <span class="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">yes</span>
+              {% else %}
+                <span class="rounded-full border border-slate-600 bg-slate-700/40 px-2 py-0.5 text-xs font-medium text-slate-300">no</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">{{ r.min_supported_version }}</td>
+            <td class="px-4 py-3">{{ r.size_bytes }}</td>
+            <td class="px-4 py-3">
+              <a href="{{ r.download_url }}" class="inline-flex items-center rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-200 transition hover:bg-indigo-500/20">download</a>
+            </td>
+          </tr>
+              {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="mt-6 text-center text-xs text-slate-500">
+      Mobile updates admin panel
+    </footer>
+  </main>
+  <script defer src="/api/v1/mobile/admin/releases/script.js"></script>
+</body>
+</html>
+

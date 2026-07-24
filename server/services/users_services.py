@@ -1,13 +1,11 @@
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import logging
 
-from server.crypto.hybrid import HybridEncryption
 from server.database import get_db
 from server.database.Messages import Messages
 from server.database.Users import Users
-from server.database.UserKeys import UserKeys
 from server.services.notification_service import NotificationService
 from sqlalchemy.orm import Session, Query
 from sqlalchemy import or_, and_
@@ -71,7 +69,16 @@ class UsersService:
     async def get_user_by_id(db: Session, user_id: uuid.UUID):
         user: Users = db.query(Users).filter(Users.id == user_id).first()
         return user
-    
+
+    @staticmethod
+    def touch_last_seen_at(db: Session, user_id: uuid.UUID, at: Optional[datetime] = None) -> None:
+        """Обновить метку последней активности (вызывать при WS connect и при полном отключении)."""
+        ts = at if at is not None else datetime.now(timezone.utc)
+        row = db.query(Users).filter(Users.id == user_id).first()
+        if not row:
+            return
+        row.last_seen_at = ts
+        db.commit()
 
 # Глобальный экземпляр
 users_service = UsersService()

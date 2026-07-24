@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Any
+from typing import Any, Dict, Tuple
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -99,6 +99,44 @@ class HybridEncryption:
             "encrypted_aes_key": CryptoUtils.encode_base64(encrypted_aes_key),
             "nonce": CryptoUtils.encode_base64(nonce)
         }
+
+    @staticmethod
+    def encrypt_message_body(message: Dict[str, Any]) -> Tuple[str, str, bytes]:
+        """
+        Legacy: server-side encrypt plaintext body (не используется в send-path).
+        Ключ потом шифруют через encrypt_aes_key_for_recipient.
+        Оставлено до post-cutover зачистки (Фаза E).
+
+        Returns:
+            (encrypted_data_b64, nonce_b64, aes_key_raw)
+        """
+        message_json = json.dumps(message, ensure_ascii=False).encode('utf-8')
+        aes_key = CryptoUtils.generate_key(HybridEncryption.AES_KEY_SIZE)
+        nonce = CryptoUtils.generate_salt(HybridEncryption.AES_NONCE_SIZE)
+        aesgcm = AESGCM(aes_key)
+        encrypted_data = aesgcm.encrypt(nonce, message_json, None)
+        return (
+            CryptoUtils.encode_base64(encrypted_data),
+            CryptoUtils.encode_base64(nonce),
+            aes_key,
+        )
+
+    @staticmethod
+    def encrypt_aes_key_for_recipient(aes_key: bytes, recipient_public_key_pem: bytes) -> str:
+        """Шифрует AES ключ публичным ключом получателя (Base64)."""
+        public_key = serialization.load_pem_public_key(
+            recipient_public_key_pem,
+            backend=default_backend()
+        )
+        encrypted = public_key.encrypt(
+            aes_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        return CryptoUtils.encode_base64(encrypted)
 
     @staticmethod
     def decrypt_message(

@@ -22,16 +22,32 @@ docker-compose down
 ### Локально
 
 ```bash
-# Установка зависимостей
-pip install -r requirements.txt
+# Рекомендуется: Poetry (Python 3.10–3.12)
+poetry python install 3.12   # если нет системного 3.12
+poetry env use 3.12
+poetry install
 
-# Запуск сервера
-python start.py
+# Запуск API
+poetry run python start.py
 ```
 
-Сервис будет доступен по адресу: `http://localhost:8080`
+Альтернатива без Poetry: `pip install -r requirements.txt` (Docker по-прежнему использует `requirements.txt`).
 
-Документация API: `http://localhost:8080/docs`
+### Тесты
+
+Нужен Postgres (удобно — `docker compose up -d postgres` из этого каталога).
+
+```bash
+# БД для тестов (один раз)
+docker exec chatservice_db psql -U postgres -c 'CREATE DATABASE "ChatDatabase_test";'
+
+poetry run pytest
+# или: poetry run pytest -q
+```
+
+По умолчанию `TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5434/ChatDatabase_test`.
+
+Сервис: `http://localhost:8080` (или `PORT` из `.env`). Docs: `/docs`.
 
 ## 🔐 Особенности
 - **JWT авторизация**: Secure token-based authentication
@@ -67,7 +83,9 @@ Content-Type: application/json
 
 {
   "username": "john_doe",
-  "service_id": "service_a"
+  "service_id": "service_a",
+  "password": "...",
+  "public_key": "-----BEGIN PUBLIC KEY-----..."
 }
 ```
 
@@ -78,13 +96,12 @@ Content-Type: application/json
   "user_id": "uuid",
   "username": "john_doe",
   "public_key": "-----BEGIN PUBLIC KEY-----...",
-  "private_key": "-----BEGIN PRIVATE KEY-----...",  // Только при регистрации!
   "access_token": "eyJ...",
   "refresh_token": "eyJ..."
 }
 ```
 
-⚠️ **Важно:** Сохраните `private_key` - он больше не будет доступен!
+⚠️ **Private key** генерируется и хранится **только на клиенте**. На сервере — public + опционально passphrase-encrypted backup (`PUT /keys/me/backup`).
 
 ### 2. Получить публичный ключ пользователя
 
@@ -93,7 +110,10 @@ GET /api/v1/keys/public/{user_id}
 Authorization: Bearer {access_token}
 ```
 
-### 3. Отправить зашифрованное сообщение
+### 3. Отправить E2E-зашифрованное сообщение
+
+Клиент шифрует тело сам и передаёт ciphertext. Сервер **не** принимает plaintext
+(`/plain` и `/plain-file` удалены; поле `message` без `e2e` — ошибка).
 
 ```bash
 POST /api/v1/messages/
@@ -102,18 +122,24 @@ Content-Type: application/json
 
 {
   "recipient_id": "uuid",
-  "message": {
-    "text": "Hello!",
-    "timestamp": 1234567890
-  },
-  "sign_message": true
+  "room_id": "uuid",
+  "e2e": {
+    "encrypted_data": "<base64>",
+    "nonce": "<base64>",
+    "recipient_keys": [
+      { "user_id": "<sender-uuid>", "encrypted_aes_key": "<base64>" },
+      { "user_id": "<recipient-uuid>", "encrypted_aes_key": "<base64>" }
+    ],
+    "signature": null
+  }
 }
 ```
 
 Сообщение будет:
-1. Зашифровано публичным ключом получателя
-2. Сохранено в БД
-3. Доставлено по WebSocket если получатель онлайн
+1. Сохранено в БД как ciphertext (+ per-recipient wrapped AES keys)
+2. Доставлено по WebSocket если получатель онлайн
+
+Через WebSocket то же самое: `{ "type": "send_message", "data": { "room_id", "e2e" } }`.
 
 ### 4. Получить сообщения (для polling клиентов)
 
@@ -192,19 +218,22 @@ function sendTypingIndicator(roomId, isTyping) {
        │ 2. public_key         │                        │
        │◀──────────────────────│                        │
        │                       │                        │
-       │ 3. Encrypt message    │                        │
-       │    (AES + RSA)        │                        │
+       │ 3. Encrypt on client  │                        │
+       │    (AES + RSA E2E)    │                        │
        │                       │                        │
        │ 4. POST /messages/    │                        │
+       │    { e2e: {...} }     │                        │
        │──────────────────────▶│                        │
        │                       │                        │
-       │                       │ 5. Save to DB          │
+       │                       │ 5. Save ciphertext     │
        │                       │                        │
        │                       │ 6. WebSocket notify    │
        │                       │───────────────────────▶│
        │                       │                        │
        │                       │                        │ 7. Decrypt & Display
 ```
+
+> Архитектурный план монорепо: см. `../docs/IMPLEMENTATION_PLAN.md`.
 
 ## 🛡️ Безопасность
 

@@ -1,0 +1,44 @@
+[tool.poetry]
+name = "chatservice"
+version = "1.0.0"
+description = "Kindred ChatService — encrypted messaging API"
+authors = ["Kindred"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.14"
+fastapi = "0.104.1"
+uvicorn = { version = "0.24.0", extras = ["standard"] }
+pydantic = { version = "2.5.0", extras = ["email"] }
+sqlalchemy = "2.0.23"
+alembic = "1.12.1"
+psycopg2-binary = "2.9.9"
+python-jose = { version = "3.3.0", extras = ["cryptography"] }
+passlib = { version = "1.7.4", extras = ["bcrypt"] }
+python-multipart = "0.0.6"
+cryptography = "41.0.7"
+requests = "*"
+websockets = "12.0"
+python-dotenv = "1.0.0"
+jinja2 = "3.1.4"
+redis = "5.0.1"
+httpx = "0.25.2"
+bcrypt = "4.0.1"
+aio-pika = "9.4.3"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]

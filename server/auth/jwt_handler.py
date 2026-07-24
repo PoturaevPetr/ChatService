@@ -3,12 +3,18 @@ from datetime import datetime, timedelta
 import uuid
 from jose import jwt, JWTError
 from passlib.context import CryptContext
+from passlib.hash import bcrypt
 
 from server.settings import settings
 
-# Контекст для хеширования паролей
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
+# Контекст для хеширования паролей.
+# - bcrypt_sha256 убирает ограничение bcrypt в 72 байта для новых хешей.
+# - bcrypt оставлен для верификации legacy-хешей.
+# - bcrypt__truncate_error=False: не падаем на legacy bcrypt при длинных паролях.
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256"],  # вместо "bcrypt"
+    deprecated="auto",
+)
 
 class JWTHandler:
     """Обработчик JWT токенов"""
@@ -115,14 +121,36 @@ class JWTHandler:
         return payload["service_id"]
 
     @staticmethod
+    def _truncate_password_to_bcrypt_limit(password: str) -> str:
+        """Trim by bytes to bcrypt 72-byte input limit (legacy compatibility)."""
+        raw = password.encode("utf-8")
+        if len(raw) <= 72:
+            return password
+        return raw[:72].decode("utf-8", errors="ignore")
+
+    @staticmethod
     def hash_password(password: str) -> str:
         """Хеширование пароля"""
+        print(pwd_context.hash(password))
         return pwd_context.hash(password)
 
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
-        """Проверка пароля"""
-        return pwd_context.verify(plain_password, hashed_password)
+        """
+        Проверка пароля.
+        Поддерживает legacy bcrypt-хеши с историческим ограничением 72 байта.
+        """
+        try:
+            return pwd_context.verify(plain_password, hashed_password)
+        except Exception:
+            # Legacy fallback: old bcrypt hash may require manual 72-byte truncation.
+            if isinstance(hashed_password, str) and hashed_password.startswith("$2"):
+                try:
+                    truncated = JWTHandler._truncate_password_to_bcrypt_limit(plain_password)
+                    return bcrypt.verify(truncated, hashed_password)
+                except Exception:
+                    return False
+            return False
 
 
 # Глобальный экземпляр
