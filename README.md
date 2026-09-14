@@ -39,7 +39,7 @@ poetry run python start.py
 
 ```bash
 # БД для тестов (один раз)
-docker exec chatservice_db psql -U postgres -c 'CREATE DATABASE "ChatDatabase_test";'
+docker exec weeknotes-chat-db psql -U postgres -c 'CREATE DATABASE "ChatDatabase_test";'
 
 poetry run pytest
 # или: poetry run pytest -q

@@ -1,10 +1,10 @@
-version: '3.8'
+name: weeknotes-chat
 
 services:
   # PostgreSQL база данных
   postgres:
     image: postgres:15-alpine
-    container_name: chatservice_db
+    container_name: weeknotes-chat-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -21,24 +21,24 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - clinic-chat
-      - clinic-network
+      - weeknotes-net
 
   # Redis — presence / pub-sub routing (на хосте — REDIS_PORT или 6380)
   redis:
     image: redis:7-alpine
-    container_name: chatservice_redis
+    container_name: weeknotes-chat-redis
     ports:
       - "${REDIS_PORT:-6380}:6379"
     networks:
-      clinic-chat:
+      weeknotes-net:
         aliases:
-          - chatservice-redis
+          - weeknotes-chat-redis
+          - redis
 
   # RabbitMQ — durable очередь доставки (DELIVERY_V2)
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: chatservice_rabbitmq
+    container_name: weeknotes-chat-rabbitmq
     ports:
       - "${RABBITMQ_PORT:-5672}:5672"
       - "${RABBITMQ_MGMT_PORT:-15672}:15672"
@@ -51,14 +51,15 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      clinic-chat:
+      weeknotes-net:
         aliases:
           - rabbitmq
 
-  # ChatService API
+  # Weeknotes Chat API
   api:
     build: .
-    container_name: chatservice_api
+    image: weeknotes-chat-api:latest
+    container_name: weeknotes-chat-api
     env_file:
       - .env
     ports:
@@ -99,14 +100,13 @@ services:
     command: python start.py
     restart: unless-stopped
     networks:
-      - clinic-chat
-      # Та же сеть, что у novu-api (см. compose Novu: backend-python_clinic-network), иначе NOVU_API_URL=http://novu-api:3000 не резолвится.
-      - novu-backend
+      - weeknotes-net
 
   # Воркер доставки: RabbitMQ → Redis ws:deliver:{node}
   worker:
     build: .
-    container_name: chatservice_worker
+    image: weeknotes-chat-worker:latest
+    container_name: weeknotes-chat-worker
     env_file:
       - .env
     ports:
@@ -136,20 +136,12 @@ services:
     command: python worker_main.py
     restart: unless-stopped
     networks:
-      - clinic-chat
+      - weeknotes-net
 
 volumes:
   postgres_data:
 
 networks:
-  clinic-chat:
+  weeknotes-net:
     driver: bridge
-    name: clinic-chat
-    external: true
-  clinic-network:
-    name: clinic-network
-    external: true
-  # Должна совпадать с именем сети в compose Novu (clinic-network → name: backend-python_clinic-network)
-  novu-backend:
-    name: backend-python_clinic-network
-    external: true
+    name: weeknotes-chat-net

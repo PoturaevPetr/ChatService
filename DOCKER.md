@@ -32,6 +32,26 @@ API → RabbitMQ → Worker → Redis `ws:deliver:{node_id}` → WebSocket на 
 
 Подробнее: [docs/REALTIME_DELIVERY.md](docs/REALTIME_DELIVERY.md).
 
+### Novu (push) — self-host рядом
+
+Отдельный compose: [deploy/novu/README.md](deploy/novu/README.md).
+
+```bash
+docker network create kindred   # один раз
+cd deploy/novu && cp .env.example .env   # секреты!
+docker compose --env-file .env up -d
+```
+
+В корневом `.env` ChatService:
+
+```bash
+NOVU_API_URL=http://novu-api:3000
+NOVU_SECRET_KEY=...   # тот же, что в deploy/novu/.env (или API key из dashboard)
+NOVU_PUSH_TRIGGER_IDENTIFIER=...
+```
+
+API ChatService должен быть в сети `kindred` (уже в `docker-compose.yml`).
+
 ### 2. Только сборка образа
 
 ```bash
@@ -142,7 +162,7 @@ docker-compose build --no-cache api
 docker-compose down -v
 
 # Удалить образы
-docker rmi chatservice_api chatservice_db
+docker rmi weeknotes-chat-api:latest weeknotes-chat-worker:latest
 ```
 
 ## 🚀 Production запуск
