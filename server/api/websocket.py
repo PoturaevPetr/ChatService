@@ -87,5 +87,12 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for user {user_id}")
     except Exception as e:
-        logger.error(f"WebSocket error for user {user_id}: {e}")
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        err_s = str(e).lower()
+        if "close" in err_s or "closed" in err_s:
+            logger.info(f"WebSocket connection closed for user {user_id}: {e}")
+        else:
+            logger.error(f"WebSocket error for user {user_id}: {e}")
+        try:
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        except Exception:
+            pass

@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, List, Tuple, Union, Literal
+from typing import Dict, Any, Optional, List, Tuple, Union, Literal, Set
 from datetime import datetime
 import uuid
 import logging
@@ -158,7 +158,11 @@ class MessageService:
         db.add(message)
         db.flush()
 
+        seen_user_ids: Set[uuid.UUID] = set()
         for user_id, encrypted_aes_key in recipient_keys:
+            if user_id in seen_user_ids:
+                continue
+            seen_user_ids.add(user_id)
             db.add(
                 MessageRecipientKeys(
                     message_id=message.id,
@@ -166,7 +170,13 @@ class MessageService:
                     encrypted_aes_key=encrypted_aes_key,
                 )
             )
+
+        seen_dev_keys: Set[Tuple[uuid.UUID, str]] = set()
         for user_id, device_id, encrypted_aes_key in (device_keys or []):
+            pair = (user_id, device_id)
+            if pair in seen_dev_keys:
+                continue
+            seen_dev_keys.add(pair)
             db.add(
                 MessageDeviceKeys(
                     message_id=message.id,
@@ -270,6 +280,20 @@ class MessageService:
                     sender_display_name=sender_push,
                     type_message=type_label,
                 )
+
+        # Multi-device sync: доставляем исходящее сообщение на другие активные устройства/вкладки отправителя
+        try:
+            await NotificationService.deliver_new_message_to_recipient(
+                message_id=message.id,
+                sender_id=sender_id,
+                recipient_id=recipient_id,
+                room_id=room_id,
+                encrypted_data=encrypted_data,
+                sent_at=message.sent_at,
+                target_user_id=sender_id,
+            )
+        except Exception as e:
+            logger.warning("Failed to deliver multi-device sync message %s to sender %s: %s", message.id, sender_id, e)
 
         return message
 

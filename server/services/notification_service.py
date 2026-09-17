@@ -35,16 +35,19 @@ class NotificationService:
     async def deliver_new_message_to_recipient(
         message_id: uuid.UUID,
         sender_id: uuid.UUID,
-        recipient_id: uuid.UUID,
+        recipient_id: Optional[uuid.UUID],
         room_id: Optional[uuid.UUID],
         encrypted_data: str,
         sent_at: datetime,
+        target_user_id: Optional[uuid.UUID] = None,
     ) -> None:
         """
         RabbitMQ → worker → Redis node channel.
         Fallback: локальный WebSocket manager.
         """
         from server.services.rabbit_delivery import publish_message_deliver
+
+        dest_user_id = target_user_id or recipient_id
 
         queued = await publish_message_deliver(
             message_id=message_id,
@@ -53,10 +56,11 @@ class NotificationService:
             room_id=room_id,
             encrypted_data=encrypted_data,
             sent_at=sent_at,
+            target_user_id=dest_user_id,
         )
 
         if queued:
-            logger.info("Message %s queued for delivery to %s", message_id, recipient_id)
+            logger.info("Message %s queued for delivery to %s", message_id, dest_user_id)
             return
 
         notification = {
@@ -71,9 +75,9 @@ class NotificationService:
             },
         }
 
-        if recipient_id:
-            await manager.send_to_user(recipient_id, notification)
-            logger.info("Notification sent to user %s for message %s", recipient_id, message_id)
+        if dest_user_id:
+            await manager.send_to_user(dest_user_id, notification)
+            logger.info("Notification sent to user %s for message %s", dest_user_id, message_id)
         elif room_id:
             await manager.broadcast_to_room(room_id, notification, exclude_user=sender_id)
             logger.info("Notification broadcasted to room %s for message %s", room_id, message_id)

@@ -15,6 +15,7 @@ PROTOCOL_LEGACY = "legacy_user_e2e"
 PROTOCOL_HYBRID_DEVICE = "hybrid_device_v0"
 PROTOCOL_SIGNAL = "signal_v1"
 PROTOCOL_SENDER_KEY = "sender_key_v0"
+PROTOCOL_HYBRID_RSA = "hybrid_rsa_v1"
 
 
 def list_active_device_ids_by_user(db: Session, user_ids: Set[uuid.UUID]) -> Dict[uuid.UUID, List[str]]:
@@ -132,20 +133,51 @@ def parse_e2e_for_send(
             device_keys,
         )
 
-    if protocol == PROTOCOL_HYBRID_DEVICE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="hybrid_device_v0 removed; use signal_v1 or sender_key_v0",
-        )
-
-    if not isinstance(enc, str) or not isinstance(nonce, str):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="e2e.encrypted_data and e2e.nonce are required",
-        )
-
     device_keys: List[Tuple[uuid.UUID, str, str]] = []
     recipient_keys: List[Tuple[uuid.UUID, str]] = []
+
+    if protocol in (PROTOCOL_HYBRID_RSA, PROTOCOL_LEGACY, PROTOCOL_HYBRID_DEVICE) or (
+        isinstance(recipient_keys_raw, list) and len(recipient_keys_raw) > 0
+    ):
+        protocol = PROTOCOL_HYBRID_RSA
+        by_user: Dict[uuid.UUID, str] = {}
+        for rk in recipient_keys_raw:
+            if isinstance(rk, dict):
+                u_raw = rk.get("user_id")
+                wrap = rk.get("encrypted_aes_key")
+                if u_raw and wrap:
+                    try:
+                        by_user[uuid.UUID(str(u_raw))] = str(wrap)
+                    except ValueError:
+                        pass
+
+        if isinstance(envelopes, list) and envelopes:
+            seen_user_dev: Set[Tuple[uuid.UUID, str]] = set()
+            for env in envelopes:
+                if isinstance(env, dict):
+                    did = env.get("device_id")
+                    body = env.get("body_b64") or env.get("encrypted_aes_key")
+                    u_raw = env.get("user_id")
+                    if did and body:
+                        uid_val = None
+                        if u_raw:
+                            try:
+                                uid_val = uuid.UUID(str(u_raw))
+                            except ValueError:
+                                pass
+                        if not uid_val:
+                            d_row = db.query(Devices).filter(Devices.device_id == str(did)).first()
+                            if d_row:
+                                uid_val = d_row.user_id
+                        if uid_val:
+                            pair = (uid_val, str(did))
+                            if pair not in seen_user_dev:
+                                seen_user_dev.add(pair)
+                                device_keys.append((uid_val, str(did), str(body)))
+                                by_user.setdefault(uid_val, str(body))
+
+        recipient_keys = list(by_user.items())
+        return enc, nonce, signature if isinstance(signature, str) else None, protocol, recipient_keys, device_keys
 
     if protocol == PROTOCOL_SENDER_KEY or (
         isinstance(envelopes, list)
@@ -216,18 +248,18 @@ def parse_e2e_for_send(
             )
 
         # Derive one recipient_key per member (access gate + legacy field)
-        by_user: Dict[uuid.UUID, str] = {}
+        by_user_sk: Dict[uuid.UUID, str] = {}
         for uid, _did, body in device_keys:
-            by_user.setdefault(uid, body)
-        if set(by_user.keys()) != member_ids:
+            by_user_sk.setdefault(uid, body)
+        if set(by_user_sk.keys()) != member_ids:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="e2e.envelopes must cover every room member",
             )
-        recipient_keys = list(by_user.items())
+        recipient_keys = list(by_user_sk.items())
         return enc, nonce, signature if isinstance(signature, str) else None, protocol, recipient_keys, device_keys
 
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail="legacy_user_e2e / hybrid removed; use protocol signal_v1 or sender_key_v0 with envelopes",
+        detail="Unsupported protocol; use hybrid_rsa_v1, signal_v1, or sender_key_v0",
     )

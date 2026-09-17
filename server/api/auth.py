@@ -146,6 +146,7 @@ class DeviceLinkPollResponse(BaseModel):
     refresh_token: Optional[str] = None
     user_id: Optional[uuid.UUID] = None
     username: Optional[str] = None
+    encrypted_master_key: Optional[str] = None
 
 
 class RefreshTokenRequest(BaseModel):
@@ -455,8 +456,10 @@ async def device_link_poll(
         access_token = row.access_token
         refresh_token = row.refresh_token
         user_id = row.user_id
+        encrypted_master_key = row.encrypted_master_key
         row.access_token = None
         row.refresh_token = None
+        row.encrypted_master_key = None
         db.commit()
         return DeviceLinkPollResponse(
             status="approved",
@@ -464,6 +467,7 @@ async def device_link_poll(
             refresh_token=refresh_token,
             user_id=user_id,
             username=username,
+            encrypted_master_key=encrypted_master_key,
         )
     return DeviceLinkPollResponse(status="pending")
 
