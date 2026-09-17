@@ -25,24 +25,7 @@ class ConnectionManager:
         self.room_connections: Dict[uuid.UUID, Set[uuid.UUID]] = {}
 
     async def connect(self, websocket: WebSocket, user_id: uuid.UUID):
-        """Установка нового WebSocket соединения. Старые соединения этого пользователя закрываются (один сокет на пользователя)."""
-        if user_id in self.active_connections:
-            old_connections = list(self.active_connections[user_id])
-            for room_id in list(self.room_connections.keys()):
-                self.room_connections[room_id].discard(user_id)
-                if not self.room_connections[room_id]:
-                    del self.room_connections[room_id]
-            del self.active_connections[user_id]
-            for old_ws in old_connections:
-                if old_ws in self.connection_to_user:
-                    del self.connection_to_user[old_ws]
-                try:
-                    await old_ws.close(code=1000)
-                except Exception as e:
-                    logger.debug("Error closing old websocket for user %s: %s", user_id, e)
-            logger.info("Closed %d old connection(s) for user %s (new connection incoming)", len(old_connections), user_id)
-            print(f"[API] Закрыто {len(old_connections)} старых соединений user={user_id}")
-
+        """Установка нового WebSocket соединения. Множественные соединения одного пользователя допускаются (мульти-девайс)."""
         await websocket.accept()
 
         if user_id not in self.active_connections:
@@ -50,7 +33,10 @@ class ConnectionManager:
         self.active_connections[user_id].append(websocket)
         self.connection_to_user[websocket] = user_id
 
-        logger.info(f"User {user_id} connected. Total connections: {len(self.connection_to_user)}")
+        conn_count = len(self.active_connections[user_id])
+        logger.info(f"User {user_id} connected (device #{conn_count}). Total connections: {len(self.connection_to_user)}")
+        if conn_count > 1:
+            print(f"[API] Мульти-девайс: user={user_id} теперь {conn_count} соединений")
 
     async def disconnect(self, websocket: WebSocket):
         """Отключение WebSocket соединения"""

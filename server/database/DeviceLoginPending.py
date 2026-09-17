@@ -20,6 +20,7 @@ class DeviceLoginPending(BaseModel):
     approved_by_device_id = Column(String(64), nullable=True)
     access_token = Column(Text, nullable=True)
     refresh_token = Column(Text, nullable=True)
+    encrypted_master_key = Column(Text, nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

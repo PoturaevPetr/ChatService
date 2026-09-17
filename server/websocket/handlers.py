@@ -45,22 +45,29 @@ class WebSocketHandler:
         await NotificationService.notify_user_online(self.user_id)
 
         # Отправляем приветственное сообщение
-        await self.websocket.send_json({
-            "type": "connected",
-            "data": {
-                "user_id": str(self.user_id),
-                "timestamp": datetime.utcnow().isoformat(),
-                "message": "WebSocket connection established"
-            }
-        })
+        try:
+            await self.websocket.send_json({
+                "type": "connected",
+                "data": {
+                    "user_id": str(self.user_id),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": "WebSocket connection established"
+                }
+            })
+        except Exception as e:
+            logger.debug("Failed to send welcome message on connect (socket already closed?): %s", e)
 
     async def disconnect(self):
         """Закрытие соединения"""
         try:
             uid = self.user_id
-            await NotificationService.notify_user_offline(uid)
+            # Сначала удаляем соединение из менеджера
             await manager.disconnect(self.websocket)
-            if not manager.is_user_online(uid):
+            # Проверяем, остались ли другие активные соединения
+            still_online = manager.is_user_online(uid)
+            if not still_online:
+                # Только если нет других подключений — уведомляем об оффлайне
+                await NotificationService.notify_user_offline(uid)
                 try:
                     from server.services.presence import clear_user_node
                     from server.settings import settings
@@ -105,6 +112,12 @@ class WebSocketHandler:
 
             elif message_type == "send_message":
                 await self._handle_send_message(data)
+
+            elif message_type == "save_draft":
+                await self._handle_save_draft(data)
+
+            elif message_type == "delete_draft":
+                await self._handle_delete_draft(data)
 
             else:
                 await self._send_error("unknown_message_type", f"Unknown message type: {message_type}")
@@ -290,6 +303,13 @@ class WebSocketHandler:
                 device_keys=device_keys or None,
             )
 
+            # Автоматически очищаем черновик для этой комнаты при отправке сообщения
+            try:
+                from server.services.draft_service import draft_service
+                await draft_service.delete_draft(self.user_id, room_uuid, db)
+            except Exception as draft_err:
+                logger.debug("Failed to auto-delete draft after send: %s", draft_err)
+
             await self.websocket.send_json({
                 "type": "message_sent",
                 "data": {
@@ -308,6 +328,68 @@ class WebSocketHandler:
         except Exception as e:
             logger.exception(f"WebSocket send_message error: {e}")
             await self._send_error("internal_error", str(e))
+        finally:
+            try:
+                next(db_gen)
+            except StopIteration:
+                pass
+
+    async def _handle_save_draft(self, data: dict):
+        """Сохранить E2E-зашифрованный черновик сообщения."""
+        room_id_raw = data.get("room_id")
+        encrypted_data = data.get("encrypted_data")
+        nonce = data.get("nonce")
+        encrypted_aes_key = data.get("encrypted_aes_key")
+        if not room_id_raw or not encrypted_data or not nonce or not encrypted_aes_key:
+            return
+
+        try:
+            room_uuid = uuid.UUID(str(room_id_raw))
+        except ValueError:
+            return
+
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            from server.services.draft_service import draft_service
+            await draft_service.save_draft(
+                user_id=self.user_id,
+                room_id=room_uuid,
+                encrypted_data=str(encrypted_data),
+                nonce=str(nonce),
+                encrypted_aes_key=str(encrypted_aes_key),
+                db=db,
+            )
+        except Exception as e:
+            logger.warning("Error saving draft via WS: %s", e)
+        finally:
+            try:
+                next(db_gen)
+            except StopIteration:
+                pass
+
+    async def _handle_delete_draft(self, data: dict):
+        """Удалить черновик сообщения."""
+        room_id_raw = data.get("room_id")
+        if not room_id_raw:
+            return
+
+        try:
+            room_uuid = uuid.UUID(str(room_id_raw))
+        except ValueError:
+            return
+
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            from server.services.draft_service import draft_service
+            await draft_service.delete_draft(
+                user_id=self.user_id,
+                room_id=room_uuid,
+                db=db,
+            )
+        except Exception as e:
+            logger.warning("Error deleting draft via WS: %s", e)
         finally:
             try:
                 next(db_gen)
@@ -338,5 +420,9 @@ class WebSocketHandler:
             await self.disconnect()
 
         except Exception as e:
-            logger.error(f"WebSocket error for user {self.user_id}: {e}")
+            err_s = str(e).lower()
+            if "close" in err_s or "closed" in err_s:
+                logger.info(f"WebSocket connection closed for user {self.user_id}")
+            else:
+                logger.error(f"WebSocket error for user {self.user_id}: {e}")
             await self.disconnect()

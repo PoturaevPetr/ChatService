@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from server.settings import settings
 
 # Импорт роутеров (после создания app)
-from server.api import auth, keys, messages, websocket, users, rooms, internal, attachments, transcription, push, mobile_updates, client_config, devices, history, llm
+from server.api import auth, keys, messages, websocket, users, rooms, internal, attachments, transcription, push, mobile_updates, client_config, devices, history, llm, drafts
 
 
 app = FastAPI(
@@ -65,6 +65,7 @@ app.include_router(transcription.router)
 app.include_router(push.router)
 app.include_router(mobile_updates.router)
 app.include_router(llm.router)
+app.include_router(drafts.router)
 
 
 @app.get("/admin/llm", include_in_schema=False)

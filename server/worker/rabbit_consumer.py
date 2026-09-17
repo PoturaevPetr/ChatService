@@ -7,7 +7,7 @@ import logging
 import uuid
 
 from server.settings import settings
-from server.services.presence import get_user_node
+from server.services.presence import get_all_user_nodes
 from server.services.delivery_broadcast import publish_deliver
 from server.services.rabbit_delivery import get_rabbit_channel
 
@@ -21,8 +21,10 @@ async def _process_payload(payload: dict) -> None:
     room_id_str = payload.get("room_id")
     encrypted_data = payload.get("encrypted_data")
     sent_at = payload.get("sent_at")
-    if not message_id_str or not recipient_id_str:
-        logger.warning("Invalid delivery payload: missing message_id or recipient_id")
+    target_user_id_str = payload.get("target_user_id") or recipient_id_str
+
+    if not message_id_str or not target_user_id_str:
+        logger.warning("Invalid delivery payload: missing message_id or target_user_id")
         return
 
     notification = {
@@ -37,36 +39,39 @@ async def _process_payload(payload: dict) -> None:
         },
     }
     body = {
-        "recipient_id": recipient_id_str,
+        "recipient_id": target_user_id_str,
         "sender_id": sender_id_str or "",
         "room_id": room_id_str,
         "notification": notification,
     }
 
-    recipient_id = uuid.UUID(recipient_id_str)
-    node_id = await get_user_node(recipient_id)
-    if node_id:
-        ok = await publish_deliver(body, node_id=node_id)
-        print(
-            f"[Worker v2] Redis deliver node={node_id} message_id={message_id_str[:8]}... "
-            f"recipient={recipient_id_str[:8]}... ok={ok}"
-        )
+    target_user_id = uuid.UUID(target_user_id_str)
+    node_ids = await get_all_user_nodes(target_user_id)
+    if node_ids:
+        for node_id in node_ids:
+            ok = await publish_deliver(body, node_id=node_id)
+            print(
+                f"[Worker v2] Redis deliver node={node_id} message_id={message_id_str[:8]}... "
+                f"target={target_user_id_str[:8]}... ok={ok}"
+            )
     else:
         print(
-            f"[Worker v2] recipient offline (no presence) message_id={message_id_str[:8]}... "
-            f"recipient={recipient_id_str[:8]}..."
+            f"[Worker v2] target offline (no presence) message_id={message_id_str[:8]}... "
+            f"target={target_user_id_str[:8]}..."
         )
 
     from server.database import SessionLocal
     from server.services.message_service import message_service
 
-    db = SessionLocal()
-    try:
-        message_service.mark_as_delivered(uuid.UUID(message_id_str), db)
-    except Exception as e:
-        logger.exception("Failed to mark message %s as delivered: %s", message_id_str, e)
-    finally:
-        db.close()
+    # Помечаем как доставленное только при доставке фактическому получателю (не отправителю)
+    if recipient_id_str and target_user_id_str == recipient_id_str:
+        db = SessionLocal()
+        try:
+            message_service.mark_as_delivered(uuid.UUID(message_id_str), db)
+        except Exception as e:
+            logger.exception("Failed to mark message %s as delivered: %s", message_id_str, e)
+        finally:
+            db.close()
 
 
 async def run_rabbit_delivery_consumer():

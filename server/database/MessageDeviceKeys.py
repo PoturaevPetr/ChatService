@@ -19,7 +19,7 @@ class MessageDeviceKeys(BaseModel):
     encrypted_aes_key = Column(Text, nullable=False)  # Base64, RSA-OAEP(device identity)
 
     __table_args__ = (
-        UniqueConstraint("message_id", "device_id", name="uq_message_device_keys_message_device"),
+        UniqueConstraint("message_id", "user_id", "device_id", name="uq_message_device_keys_user_device"),
     )
 
     def __repr__(self):

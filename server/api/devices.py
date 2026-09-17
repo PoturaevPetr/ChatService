@@ -101,6 +101,7 @@ class LinkFinishResponse(BaseModel):
 class ApproveLoginRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=16)
     device_id: str = Field(..., min_length=8, max_length=64)
+    encrypted_master_key: Optional[str] = None
 
 
 class ApproveLoginResponse(BaseModel):
@@ -201,6 +202,49 @@ async def revoke_device(
     row.revoked_at = datetime.now(timezone.utc)
     db.commit()
     return None
+
+
+class StaleDeviceCleanupRequest(BaseModel):
+    stale_days: int = Field(90, ge=1, le=365, description="Деактивировать устройства, не выходившие на связь N дней")
+
+
+@router.post("/devices/me/cleanup-stale")
+async def cleanup_stale_devices(
+    body: StaleDeviceCleanupRequest = StaleDeviceCleanupRequest(),
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Деактивировать устройства текущего пользователя, которые не были онлайн
+    более stale_days дней. Помогает избежать ошибок при отправке E2E-сообщений
+    когда есть «мёртвые» устройства.
+    """
+    from datetime import timedelta
+
+    user_id = current_user["user_id"]
+    cutoff = datetime.now(timezone.utc) - timedelta(days=body.stale_days)
+    stale_rows = (
+        db.query(Devices)
+        .filter(
+            Devices.user_id == user_id,
+            Devices.is_active == True,
+            Devices.revoked_at.is_(None),
+            Devices.last_seen_at < cutoff,
+        )
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    deactivated = []
+    for row in stale_rows:
+        row.is_active = False
+        row.revoked_at = now
+        deactivated.append(row.device_id)
+    db.commit()
+    return {
+        "deactivated_count": len(deactivated),
+        "deactivated_device_ids": deactivated,
+        "stale_days": body.stale_days,
+    }
 
 
 @router.put("/devices/me/prekeys", status_code=status.HTTP_204_NO_CONTENT)
@@ -511,6 +555,7 @@ async def approve_login(
         pending.approved_by_device_id = body.device_id
         pending.access_token = access_token
         pending.refresh_token = refresh_token
+        pending.encrypted_master_key = body.encrypted_master_key
         db.commit()
     except HTTPException:
         db.rollback()

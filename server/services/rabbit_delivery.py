@@ -73,10 +73,11 @@ async def get_rabbit_channel():
 async def publish_message_deliver(
     message_id: uuid.UUID,
     sender_id: uuid.UUID,
-    recipient_id: uuid.UUID,
+    recipient_id: Optional[uuid.UUID],
     room_id: Optional[uuid.UUID],
     encrypted_data: str,
     sent_at: datetime,
+    target_user_id: Optional[uuid.UUID] = None,
 ) -> bool:
     """Положить задачу доставки в RabbitMQ. True если опубликовано."""
     try:
@@ -88,13 +89,15 @@ async def publish_message_deliver(
     if channel is None:
         return False
 
+    dest_user_id = target_user_id or recipient_id
     payload = {
         "message_id": str(message_id),
         "sender_id": str(sender_id),
-        "recipient_id": str(recipient_id),
+        "recipient_id": str(recipient_id) if recipient_id else None,
         "room_id": str(room_id) if room_id else None,
         "encrypted_data": encrypted_data,
         "sent_at": sent_at.isoformat(),
+        "target_user_id": str(dest_user_id) if dest_user_id else None,
     }
     try:
         exchange = await channel.declare_exchange(
@@ -110,7 +113,7 @@ async def publish_message_deliver(
             ),
             routing_key=settings.RABBIT_DELIVER_ROUTING_KEY,
         )
-        logger.debug("Published deliver task message_id=%s recipient=%s", message_id, recipient_id)
+        logger.debug("Published deliver task message_id=%s target_user=%s", message_id, dest_user_id)
         return True
     except Exception as e:
         logger.error("Rabbit publish failed: %s", e)
